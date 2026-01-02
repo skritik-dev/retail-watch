@@ -1,0 +1,2 @@
+psycopg2-binary # Lets Python connect to and run SQL queries on a PostgreSQL database
+kafka-python # Lets Python produce and consume messages from Kafka-compatible brokers like Redpanda

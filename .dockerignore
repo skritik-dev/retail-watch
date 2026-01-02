@@ -1,0 +1,33 @@
+# Git
+.git
+.gitignore
+
+# Docker
+.dockerignore
+docker-compose.yml
+Dockerfile
+deployment/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+.retail-watch-venv/
+venv/
+env/
+.venv
+
+# VS Code
+.vscode/
+
+# Environment
+.env
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs
+*.log
