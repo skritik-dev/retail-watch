@@ -1,12 +1,14 @@
 import json
+import time
 import re
-from kafka import KafkaConsumer
+from kafka import KafkaConsumer, TopicPartition
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean
 from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.sql import func
 import pandera as pa
 from pandera.typing import DataFrame, Series
 from utils.logger import get_logger
+from prometheus_client import start_http_server, Counter, Histogram, Gauge
 
 logger = get_logger("Consumer")
 
@@ -16,6 +18,38 @@ DLQ_TOPIC = 'dead_letter_queue' #? Where bad data goes to die
 DB_CONNECTION = "postgresql://retail_user:retail_password@localhost:5432/retail_db"
 
 Base = declarative_base()
+
+# Metrics Definition
+
+# Counts how many messages were processed, split by outcome
+# Lets you see throughput and error rate (is the pipeline healthy or failing?)
+SCRAPES_PROCESSED = Counter(
+    "retail_scrapes_total",
+    "Total scrapes processed",
+    ["status"]  # success | error
+)
+
+# Measures end-to-end time taken to process a single Kafka message
+# Used to track latency (P50/P95/P99) and detect slowdowns
+PROCESSING_TIME = Histogram(
+    "retail_processing_seconds",
+    "Time spent processing a message"
+)
+
+# Measures how long database writes take
+# Helps identify whether Postgres is the bottleneck
+DB_WRITE_TIME = Histogram(
+    "retail_db_write_seconds",
+    "Time spent writing to Postgres"
+)
+
+# Tracks how far the consumer is behind the latest Kafka offset
+# If this keeps growing, the consumer cannot keep up with incoming data (backpressure detection)
+KAFKA_LAG = Gauge(
+    "kafka_consumer_lag",
+    "Difference between latest offset and consumer offset",
+    ["topic", "partition"]
+)
 
 class ProductModel(Base):
     __tablename__ = 'products'
@@ -50,9 +84,11 @@ def process_message(msg_value):
     3. Write to DB
     """
     session = Session()
+    start_time = time.time()  
+    status = "success"  
+
     try:
         data = json.loads(msg_value)
-        logger.info(f" [OK] Received: {data.get('product_name', 'Unknown')[:20]}...")
 
         # 1. Validation
         # TODO: Convert to DataFrame to use Pandera fully
@@ -82,26 +118,43 @@ def process_message(msg_value):
             session.add(new_product)
             logger.info(f" [OK] Inserted: {data['product_name'][:20]}")
 
-        session.commit()
+        with DB_WRITE_TIME.time():
+            session.commit()
 
     except Exception as e:
         session.rollback()
+        status = "error"
         logger.error(f" [x] Error processing message: {e}")
         # TODO: Send to DLQ (Dead Letter Queue) Topic
     finally:
         session.close()
+        duration = time.time() - start_time
+        PROCESSING_TIME.observe(duration)
+        SCRAPES_PROCESSED.labels(status=status).inc()
 
 def run_consumer():
+    logger.info(" [~] Metrics server running on port 8000")
+    start_http_server(8000)
+
     logger.info(" [~] Listening for messages on 'raw_scrapes'...")
     consumer = KafkaConsumer(
         INPUT_TOPIC,
         bootstrap_servers=KAFKA_BOOTSTRAP_SERVER,
-        auto_offset_reset='earliest', # Start from beginning if no history
+        auto_offset_reset='latest',
         group_id='retail_consumer_group_v1', # Crucial for scaling
         enable_auto_commit=False #? In production systems, this is often set to False and commits are done after successful processing
     )
 
     for message in consumer:
+        tp = TopicPartition(message.topic, message.partition)
+        end_offset = consumer.end_offsets([tp])[tp]
+        lag = end_offset - message.offset
+
+        KAFKA_LAG.labels(
+            topic=message.topic,
+            partition=str(message.partition)
+        ).set(lag)
+
         process_message(message.value)
         consumer.commit()
 
