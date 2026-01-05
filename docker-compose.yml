@@ -56,7 +56,40 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
 
-  # 4. The Metrics Server (Prometheus)
+  # 3. The Object Storage Server
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    ports:
+      - '9000:9000' # API Port
+      - '9001:9001' # Console UI Port
+    environment:
+      MINIO_ROOT_USER: minio_user
+      MINIO_ROOT_PASSWORD: minio_password
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # 4. The Setup Job (Creates the bucket automatically)
+  minio-setup:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set myminio http://minio:9000 minio_user minio_password;
+      /usr/bin/mc mb myminio/dvc-storage;
+      /usr/bin/mc anonymous set public myminio/dvc-storage;
+      exit 0;
+      "
+
+  # 5. The Metrics Server (Prometheus)
   # Collects and stores metrics for analysis
   prometheus:
     image: prom/prometheus:latest
@@ -68,7 +101,7 @@ services:
     extra_hosts:
       - 'host.docker.internal:host-gateway' # Crucial for Linux support
 
-  # 5. The Data Visualization Tool (Grafana)
+  # 6. The Data Visualization Tool (Grafana)
   # Visualizes metrics in real-time
   grafana:
     image: grafana/grafana:latest
@@ -83,3 +116,4 @@ services:
 volumes:
   redpanda-data:
   postgres-data:
+  minio_data:
