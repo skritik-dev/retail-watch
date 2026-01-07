@@ -10,7 +10,7 @@ INPUT_FILE = BASE_DIR / "datasets/products_v1.csv"
 OUTPUT_FILE = BASE_DIR / "datasets/training_data.csv"
 
 def generate_features():
-    logger.info(" [~] Feature engineering started")
+    logger.info(" [~] Feature engineering started.")
     
     # Load Data
     df = pd.read_csv(INPUT_FILE)

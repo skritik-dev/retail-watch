@@ -7,4 +7,3 @@ scrape_configs:
       # host.docker.internal allows Docker container to talk to your laptop
       # If on Linux, use '172.17.0.1:8000' or your local IP
       - targets: ['host.docker.internal:8000']
-      # - targets: ['172.31.112.1:8000']
