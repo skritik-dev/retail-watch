@@ -18,3 +18,5 @@ scikit-learn==1.3.2
 xgboost==2.0.3
 mlflow==3.8.1
 importlib-metadata
+
+evidently==0.4.19
