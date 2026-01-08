@@ -20,3 +20,4 @@ mlflow==3.8.1
 importlib-metadata
 
 evidently==0.4.19
+requests
